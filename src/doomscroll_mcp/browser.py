@@ -30,10 +30,9 @@ from .humanize import Humanizer
 
 INSTAGRAM_URL = "https://www.instagram.com/"
 REELS_URL = "https://www.instagram.com/reels/"
-# Public web app id IG's own client sends; required for the internal API.
-IG_APP_ID = "936619743392459"
 # Relevance-filtered keyword search SERP. explore_grid ignores its tag/query
 # param (returns generic explore), so top_serp is the real topic source.
+# The X-IG-App-ID header it requires lives in Settings.ig_app_id (env-overridable).
 TOP_SERP = "https://www.instagram.com/api/v1/fbsearch/web/top_serp/"
 
 # Anti-detection. Instagram blocks logins from automation-flagged browsers, so we
@@ -321,7 +320,7 @@ class BrowserSession:
         pw = ctx = None
         hz = Humanizer(self.settings.humanize)
         reels: dict[str, dict[str, Any]] = {}
-        headers = {"X-IG-App-ID": IG_APP_ID, "Referer": INSTAGRAM_URL}
+        headers = {"X-IG-App-ID": self.settings.ig_app_id, "Referer": INSTAGRAM_URL}
         try:
             pw, ctx = await self._launch(headless=True)
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()

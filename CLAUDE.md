@@ -100,4 +100,6 @@ uv run doomscroll-mcp                      # start the MCP server (stdio)
 
 Env: `DOOMSCROLL_HOME` (profile+fixtures root, default `~/.doomscroll-mcp`),
 `DOOMSCROLL_MODE` (fast_test|normal_passive|conservative),
-`DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default).
+`DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default),
+`DOOMSCROLL_IG_APP_ID` (override the public web app-id used for the search API,
+in case Instagram rotates it; default is the long-stable public value).
