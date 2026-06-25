@@ -21,6 +21,7 @@ import time
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .config import Settings
 from .errors import DoomScrollError, ErrorCode
@@ -29,6 +30,10 @@ from .humanize import Humanizer
 
 INSTAGRAM_URL = "https://www.instagram.com/"
 REELS_URL = "https://www.instagram.com/reels/"
+# Relevance-filtered keyword search SERP. explore_grid ignores its tag/query
+# param (returns generic explore), so top_serp is the real topic source.
+# The X-IG-App-ID header it requires lives in Settings.ig_app_id (env-overridable).
+TOP_SERP = "https://www.instagram.com/api/v1/fbsearch/web/top_serp/"
 
 # Anti-detection. Instagram blocks logins from automation-flagged browsers, so we
 # present as a normal desktop Chrome: real UA, a locale/timezone, no
@@ -286,10 +291,120 @@ class BrowserSession:
 
     # --- scrolling -----------------------------------------------------------
     async def scroll_reels(self, limit: int = 50) -> dict[str, Any]:
-        """Drive the default Reels feed, capture network JSON, return reel dicts.
+        """Drive the default Reels feed (full-screen player), return reel dicts."""
+        return await self._browse(
+            REELS_URL, surface="player", limit=limit, suggested_tool="scroll_reels"
+        )
+
+    async def search_reels(self, query: str, limit: int = 50) -> dict[str, Any]:
+        """Search Instagram by keyword and return matching reels."""
+        return await self._search_api(query, limit=limit, suggested_tool="search_reels")
+
+    async def hashtag_reels(self, tag: str, limit: int = 50) -> dict[str, Any]:
+        """Return reels for a hashtag (treated as a search term)."""
+        return await self._search_api(
+            tag.lstrip("#"), limit=limit, suggested_tool="hashtag_reels"
+        )
+
+    async def _search_api(
+        self, query: str, limit: int, suggested_tool: str
+    ) -> dict[str, Any]:
+        """Topic discovery via IG's top_serp search API.
+
+        Calling the API directly (instead of scrolling the explore UI) returns
+        relevance-filtered topic reels with no home-feed contamination, ~12 per
+        page, paginated by media_grid.next_max_id. Photos in the SERP are dropped
+        by the parser.
+        """
+        self.lock.acquire()
+        pw = ctx = None
+        hz = Humanizer(self.settings.humanize)
+        reels: dict[str, dict[str, Any]] = {}
+        headers = {"X-IG-App-ID": self.settings.ig_app_id, "Referer": INSTAGRAM_URL}
+        try:
+            pw, ctx = await self._launch(headless=True)
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+            await page.goto(INSTAGRAM_URL, wait_until="domcontentloaded")
+            state = await _detect_state(page)
+            if state == LoginState.LOGGED_OUT:
+                raise DoomScrollError(
+                    ErrorCode.AUTH_REQUIRED, "Not logged in.",
+                    requires_headful=True, suggested_tool="login",
+                )
+            if state == LoginState.CHECKPOINT:
+                raise DoomScrollError(
+                    ErrorCode.CHECKPOINT_REQUIRED,
+                    "Instagram is showing a checkpoint/challenge.",
+                    requires_headful=True, suggested_tool="login",
+                    details={"hint": "call login(force=True)"},
+                )
+
+            max_id: str | None = None
+            seen_tokens: set[str] = set()
+            for _ in range(25):  # hard page cap as a safety stop
+                q = f"{TOP_SERP}?query={quote(query)}"
+                if max_id:
+                    q += f"&next_max_id={quote(max_id)}"
+                resp = await ctx.request.get(q, headers=headers)
+                if resp.status != 200:
+                    break
+                try:
+                    payload = json.loads(await resp.text())
+                except Exception:
+                    break
+                if self.settings.capture_fixtures:
+                    self._dump_fixture(q, payload)
+                before = len(reels)
+                for reel in extract.parse_response(payload):
+                    if reel["url"] and reel["url"] not in reels:
+                        reels[reel["url"]] = reel
+                        hz.note_reel()
+                if len(reels) >= limit or hz.cap_reached:
+                    break
+                grid = payload.get("media_grid") or {}
+                tok = grid.get("next_max_id")
+                max_id = str(tok) if tok not in (None, "", 0, "0") else None
+                # Stop if pagination exhausted, token repeats, or a page added
+                # nothing new (guards against an endless same-page loop).
+                if (
+                    not grid.get("has_more")
+                    or not max_id
+                    or max_id in seen_tokens
+                    or len(reels) == before
+                ):
+                    break
+                seen_tokens.add(max_id)
+                await hz.scroll_pause()  # passive delay between pages
+
+            result = list(reels.values())[:limit]
+            if not result:
+                raise DoomScrollError(
+                    ErrorCode.NO_REELS_FOUND,
+                    f"No reels found for {param}={value!r}.",
+                    retry_after=30.0, suggested_tool=suggested_tool,
+                )
+            out: dict[str, Any] = {
+                "reels": result,
+                "count": len(result),
+                "timing": hz.timing_state(),
+                "fill_rate": _fill_rate(result),
+            }
+            if hz.cap_reached:
+                out["warning"] = ErrorCode.COOLDOWN_ACTIVE.value
+                out["retry_after"] = hz.state.cooldown_remaining
+            return out
+        finally:
+            await self._teardown(pw, ctx)
+
+    async def _browse(
+        self, url: str, surface: str, limit: int, suggested_tool: str
+    ) -> dict[str, Any]:
+        """Shared engine: navigate, capture network JSON, scroll, return reels.
 
         Network capture is primary; DOM hrefs are a fallback only for reels with
-        no JSON backing (flagged EXTRACTION_DEGRADED).
+        no JSON backing (flagged EXTRACTION_DEGRADED). `surface` picks the scroll
+        strategy: "player" advances the full-screen /reels/ viewer one reel at a
+        time; "grid" wheel-scrolls explore/hashtag result grids to lazy-load more.
         """
         self.lock.acquire()
         pw = ctx = None
@@ -336,7 +451,7 @@ class BrowserSession:
 
             page.on("response", _spawn)
 
-            await page.goto(REELS_URL, wait_until="domcontentloaded")
+            await page.goto(url, wait_until="domcontentloaded")
             state = await _detect_state(page)
             if state == LoginState.LOGGED_OUT:
                 raise DoomScrollError(
@@ -354,16 +469,17 @@ class BrowserSession:
                     details={"hint": "call login(force=True)"},
                 )
 
-            # The /reels/ page is a full-screen vertical player: advancing one
-            # reel at a time (ArrowDown, plus a wheel nudge as backup) is what
-            # makes IG prefetch the next graphql batch. A plain wheel scroll
-            # often doesn't move the player, so capture plateaus early.
+            # The /reels/ player advances one reel at a time (ArrowDown) to make
+            # IG prefetch the next batch; explore/hashtag grids lazy-load on a
+            # plain wheel/PageDown scroll. Pick the right gesture per surface.
             await page.bring_to_front()
             stagnant = 0
             while len(reels) < limit and not hz.cap_reached and stagnant < 15:
                 before = len(reels)
                 try:
-                    await page.keyboard.press("ArrowDown")
+                    await page.keyboard.press(
+                        "ArrowDown" if surface == "player" else "PageDown"
+                    )
                 except Exception:
                     pass
                 await page.mouse.wheel(0, hz.scroll_delta())
@@ -411,9 +527,9 @@ class BrowserSession:
                     )
                 raise DoomScrollError(
                     ErrorCode.NO_REELS_FOUND,
-                    "No reels extracted from the feed.",
+                    "No reels extracted.",
                     retry_after=30.0,
-                    suggested_tool="scroll_reels",
+                    suggested_tool=suggested_tool,
                 )
 
             payload = {

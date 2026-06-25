@@ -69,7 +69,8 @@ src/doomscroll_mcp/
   errors.py     DoomScrollError + ErrorCode (typed, loop-recoverable for the agent)
   extract.py    network-JSON parser (primary) + DOM fallback
   browser.py    BrowserSession: persistent context, profile lock, login state machine, scroll loop
-  server.py     FastMCP tools: login, login_status, logout, doctor, scroll_reels
+  server.py     FastMCP tools: login, login_status, logout, doctor,
+                scroll_reels, search_reels, hashtag_reels
 tests/          parser fixture tests (the test signal without ground truth)
 ```
 
@@ -83,8 +84,9 @@ tests/          parser fixture tests (the test signal without ground truth)
 - **Typed errors** (`AUTH_REQUIRED`, `CHECKPOINT_REQUIRED`, `COOLDOWN_ACTIVE`,
   `EXTRACTION_DEGRADED`, `SELECTOR_BROKEN`, `NO_REELS_FOUND`, …): tools return
   error dicts, never raw tracebacks, so the agent loop can branch.
-- **Honest tool surface**: `scroll_reels` drives the default feed only.
-  search/hashtag will ship as separate tools, not advertised-but-empty params.
+- **Honest tool surface**: `scroll_reels` (default feed, /reels/ player UI),
+  `search_reels` / `hashtag_reels` (topic discovery via the `top_serp` search
+  API — `explore_grid` ignores its tag/query param, so it is not used).
 - **Profile lock** prevents two sessions sharing one `user_data_dir`.
 
 ## Commands
@@ -98,4 +100,6 @@ uv run doomscroll-mcp                      # start the MCP server (stdio)
 
 Env: `DOOMSCROLL_HOME` (profile+fixtures root, default `~/.doomscroll-mcp`),
 `DOOMSCROLL_MODE` (fast_test|normal_passive|conservative),
-`DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default).
+`DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default),
+`DOOMSCROLL_IG_APP_ID` (override the public web app-id used for the search API,
+in case Instagram rotates it; default is the long-stable public value).

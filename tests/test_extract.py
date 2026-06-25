@@ -67,6 +67,25 @@ def test_walks_nested_graphql_and_skips_non_reels():
     assert reels[0]["url"].endswith("/reel/Cabc123/")
 
 
+def test_parses_top_serp_search_shape():
+    # Search results arrive nested under media_grid.sections[..].layout_content;
+    # the recursive walker must still find the reel.
+    serp = {
+        "media_grid": {
+            "sections": [
+                {"layout_content": {"medias": [{"media": API_V1_REEL}]}},
+                {"layout_content": {"medias": [{"media": {"code": "img", "pk": "2",
+                                                          "is_video": False}}]}},
+            ],
+            "has_more": True,
+            "next_max_id": "abc",
+        }
+    }
+    reels = extract.parse_response(serp)
+    assert len(reels) == 1
+    assert reels[0]["creator"] == "yogi.jane"
+
+
 def test_dedupes_within_payload():
     reels = extract.parse_response({"a": [API_V1_REEL], "b": [API_V1_REEL]})
     assert len(reels) == 1
@@ -80,6 +99,18 @@ def test_image_post_with_is_video_false_is_skipped():
     # An image post carries a code/pk but is_video=False — must NOT become a reel.
     image = {"code": "IMG123", "pk": "5", "is_video": False, "like_count": 9}
     assert extract.parse_response({"items": [image]}) == []
+
+
+def test_audio_from_music_metadata_search_shape():
+    # Search (top_serp) nests audio under music_metadata, not clips_metadata.
+    node = {k: v for k, v in API_V1_REEL.items() if k != "clips_metadata"}
+    node["music_metadata"] = {
+        "music_info": {"music_asset_info": {"title": "Calm", "display_artist": "X"}}
+    }
+    node["play_count"] = 944436
+    r = extract.reel_from_node(node)
+    assert r["audio"] == "Calm — X"
+    assert r["views"] == 944436  # views available in search
 
 
 def test_non_dict_music_info_does_not_crash():

@@ -1,8 +1,16 @@
-# Why `views` is always null
+# Where `views` come from (feed: no, search: yes)
 
-Short version: **Instagram does not expose reel view/play counts on the web**, so
-`scroll_reels` returns `views: null` for every reel. This is a platform wall, not
-a bug or a missing feature. This doc records what we checked so nobody re-chases it.
+Short version: the **home feed** (`scroll_reels`) does not expose reel view
+counts, so `views` is null there. The **search SERP** (`search_reels` /
+`hashtag_reels`, via `top_serp`) DOES include them — `play_count` /
+`ig_play_count` are present, so `views` populates for those tools.
+
+> Correction: an earlier version of this doc concluded views were unavailable
+> everywhere. That holds for the feed and the standalone reel page, but the
+> `top_serp` search payload was later found to carry play counts. The parser
+> already reads `play_count`/`ig_play_count`, so search results return real view
+> numbers (e.g. 944,436 / 3,174,121). The notes below are the original
+> feed/reel-page investigation and remain accurate for those surfaces.
 
 ## What was probed (live, logged-in session)
 
