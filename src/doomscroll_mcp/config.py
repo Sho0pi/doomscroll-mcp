@@ -28,7 +28,7 @@ class HumanizeConfig:
     like_probability: float = 0.0                            # 0..1
 
     @classmethod
-    def for_mode(cls, mode: str) -> "HumanizeConfig":
+    def for_mode(cls, mode: str) -> HumanizeConfig:
         """Preset configs per browsing mode."""
         if mode == "fast_test":
             # near-instant; for tests and dev only, NOT bot-safe
@@ -72,7 +72,7 @@ class Settings:
     max_duration_s: int = 1800  # 30 minutes
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         base = Path(
             os.environ.get(
                 "DOOMSCROLL_HOME",
@@ -98,7 +98,7 @@ class Settings:
             max_duration_s=max(1, max_dur),
         )
 
-    def with_mode(self, mode: str) -> "Settings":
+    def with_mode(self, mode: str) -> Settings:
         if mode not in MODES:
             raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
         return replace(self, mode=mode, humanize=HumanizeConfig.for_mode(mode))

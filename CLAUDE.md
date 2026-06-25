@@ -94,9 +94,16 @@ tests/          parser fixture tests (the test signal without ground truth)
 ```bash
 uv sync --extra dev                       # install deps
 uv run playwright install chromium        # one-time browser install
+uv run ruff check .                        # lint (CI enforces this)
 uv run pytest -q                          # run tests
 uv run doomscroll-mcp                      # start the MCP server (stdio)
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff + pytest on 3.11/3.12/3.13.
+Release: bump `version` in `pyproject.toml`, update `CHANGELOG.md`, then tag
+`vX.Y.Z` and push — `release.yml` builds + publishes to PyPI (trusted
+publishing) and cuts a GitHub Release. The tag must match the pyproject version.
+See `docs/releasing.md`.
 
 Env: `DOOMSCROLL_HOME` (profile+fixtures root, default `~/.doomscroll-mcp`),
 `DOOMSCROLL_MODE` (fast_test|normal_passive|conservative),

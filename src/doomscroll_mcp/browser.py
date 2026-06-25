@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import extract
 from .config import Settings
 from .errors import DoomScrollError, ErrorCode
-from . import extract
 from .humanize import Humanizer
 
 INSTAGRAM_URL = "https://www.instagram.com/"
@@ -94,7 +94,7 @@ class ProfileLock:
                 "Another DoomScroll session is using this browser profile.",
                 retry_after=10.0,
                 details={"lock": str(self.path)},
-            )
+            ) from None
         os.write(fd, str(os.getpid()).encode())
         os.close(fd)
         self._owned = True
@@ -299,7 +299,7 @@ class BrowserSession:
         suggested_tool: str,
         elapsed_s: float,
         degraded: bool = False,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Shared payload builder: filter, then sort/top, attach metadata.
 
@@ -349,7 +349,7 @@ class BrowserSession:
     # --- scrolling -----------------------------------------------------------
     async def scroll_reels(
         self, limit: int = 50, sort_by: str | None = None, top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Drive the default Reels feed until `limit` reels are collected."""
         return await self._browse(
@@ -362,7 +362,7 @@ class BrowserSession:
         duration_seconds: int,
         sort_by: str | None = None,
         top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Doomscroll the default feed for a fixed wall-clock duration."""
         return await self._browse(
@@ -374,7 +374,7 @@ class BrowserSession:
     async def search_reels(
         self, query: str, limit: int = 50,
         sort_by: str | None = None, top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Search Instagram by keyword and return matching reels."""
         return await self._search_api(
@@ -385,7 +385,7 @@ class BrowserSession:
     async def hashtag_reels(
         self, tag: str, limit: int = 50,
         sort_by: str | None = None, top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Return reels for a hashtag (treated as a search term)."""
         return await self._search_api(
@@ -396,7 +396,7 @@ class BrowserSession:
     async def _search_api(
         self, query: str, limit: int, suggested_tool: str,
         sort_by: str | None = None, top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Topic discovery via IG's top_serp search API.
 
@@ -481,7 +481,7 @@ class BrowserSession:
         self, url: str, surface: str, limit: int, suggested_tool: str,
         duration_seconds: int | None = None,
         sort_by: str | None = None, top: int | None = None,
-        filters: "extract.Filters | None" = None,
+        filters: extract.Filters | None = None,
     ) -> dict[str, Any]:
         """Shared engine: navigate, capture network JSON, scroll, return reels.
 
