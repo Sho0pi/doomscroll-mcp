@@ -299,10 +299,14 @@ class BrowserSession:
         suggested_tool: str,
         elapsed_s: float,
         degraded: bool = False,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
-        """Shared payload builder: validate+apply sort/top, attach metadata.
+        """Shared payload builder: filter, then sort/top, attach metadata.
 
-        Raises BAD_SORT for an unknown sort_by before any truncation.
+        Pipeline: collected -> filter -> sort -> top. Raises BAD_SORT for an
+        unknown sort_by. Raises NO_REELS_FOUND only when NOTHING was collected;
+        an empty result purely because filters excluded everything is a valid
+        response (reels: [], filtered_out: N), not an error.
         """
         if sort_by is not None and sort_by not in extract.SORT_KEYS:
             raise DoomScrollError(
@@ -310,22 +314,29 @@ class BrowserSession:
                 f"unknown sort_by {sort_by!r}; expected one of {tuple(extract.SORT_KEYS)}",
                 suggested_tool=suggested_tool,
             )
-        result = extract.sort_reels(list(reels.values()), sort_by, top)
-        if not result:
+        collected = list(reels.values())
+        if not collected:
             raise DoomScrollError(
                 ErrorCode.NO_REELS_FOUND,
                 "No reels collected.",
                 retry_after=30.0,
                 suggested_tool=suggested_tool,
             )
+        kept = filters.apply(collected) if filters else collected
+        result = extract.sort_reels(kept, sort_by, top)
         out: dict[str, Any] = {
             "reels": result,
             "count": len(result),
+            "filtered_out": len(collected) - len(kept),
             "stopped_reason": stopped_reason,
             "duration_elapsed_s": round(elapsed_s, 1),
             "timing": hz.timing_state(),
             "fill_rate": _fill_rate(result),
         }
+        if filters and not filters.is_empty:
+            out["filters"] = filters.active()
+        if not result:
+            out["note"] = "Reels were collected but all were excluded by filters."
         if sort_by:
             out["sorted_by"] = sort_by
         if degraded:
@@ -337,12 +348,13 @@ class BrowserSession:
 
     # --- scrolling -----------------------------------------------------------
     async def scroll_reels(
-        self, limit: int = 50, sort_by: str | None = None, top: int | None = None
+        self, limit: int = 50, sort_by: str | None = None, top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Drive the default Reels feed until `limit` reels are collected."""
         return await self._browse(
             REELS_URL, surface="player", limit=limit,
-            sort_by=sort_by, top=top, suggested_tool="scroll_reels",
+            sort_by=sort_by, top=top, filters=filters, suggested_tool="scroll_reels",
         )
 
     async def doomscroll(
@@ -350,36 +362,41 @@ class BrowserSession:
         duration_seconds: int,
         sort_by: str | None = None,
         top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Doomscroll the default feed for a fixed wall-clock duration."""
         return await self._browse(
             REELS_URL, surface="player", limit=10_000,
             duration_seconds=duration_seconds, sort_by=sort_by, top=top,
-            suggested_tool="doomscroll",
+            filters=filters, suggested_tool="doomscroll",
         )
 
     async def search_reels(
         self, query: str, limit: int = 50,
         sort_by: str | None = None, top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Search Instagram by keyword and return matching reels."""
         return await self._search_api(
-            query, limit=limit, sort_by=sort_by, top=top, suggested_tool="search_reels"
+            query, limit=limit, sort_by=sort_by, top=top, filters=filters,
+            suggested_tool="search_reels",
         )
 
     async def hashtag_reels(
         self, tag: str, limit: int = 50,
         sort_by: str | None = None, top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Return reels for a hashtag (treated as a search term)."""
         return await self._search_api(
-            tag.lstrip("#"), limit=limit, sort_by=sort_by, top=top,
+            tag.lstrip("#"), limit=limit, sort_by=sort_by, top=top, filters=filters,
             suggested_tool="hashtag_reels",
         )
 
     async def _search_api(
         self, query: str, limit: int, suggested_tool: str,
         sort_by: str | None = None, top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Topic discovery via IG's top_serp search API.
 
@@ -455,6 +472,7 @@ class BrowserSession:
             return self._finalize(
                 kept, hz, sort_by, top, stopped_reason=reason,
                 suggested_tool=suggested_tool, elapsed_s=time.monotonic() - t0,
+                filters=filters,
             )
         finally:
             await self._teardown(pw, ctx)
@@ -463,6 +481,7 @@ class BrowserSession:
         self, url: str, surface: str, limit: int, suggested_tool: str,
         duration_seconds: int | None = None,
         sort_by: str | None = None, top: int | None = None,
+        filters: "extract.Filters | None" = None,
     ) -> dict[str, Any]:
         """Shared engine: navigate, capture network JSON, scroll, return reels.
 
@@ -623,7 +642,7 @@ class BrowserSession:
             return self._finalize(
                 kept, hz, sort_by, top, stopped_reason=reason,
                 suggested_tool=suggested_tool, elapsed_s=time.monotonic() - t0,
-                degraded=degraded,
+                degraded=degraded, filters=filters,
             )
         finally:
             await self._teardown(pw, ctx)

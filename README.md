@@ -217,6 +217,31 @@ to get "the best reels from N minutes of scrolling". Duration is clamped to
 `views | likes | reposts | recent` (descending; `None` = discovery order).
 Responses include `stopped_reason` (`limit | duration | dry | capped`).
 
+### Filters
+
+All four collection tools accept filters, applied **after collection, before
+sort/top**:
+
+- `posted_within_hours` — recency window (e.g. `24` = last day)
+- `min_views` / `min_likes` / `min_reposts` — engagement floors ("viral")
+- `contains` — caption keyword, case-insensitive
+
+Example — "best fresh reels from 10 minutes of doomscrolling":
+`doomscroll(600, posted_within_hours=24, sort_by="likes", top=10)`.
+
+Responses include `filtered_out` (how many were dropped) and echo the active
+`filters`. An empty result purely because filters excluded everything is a valid
+response (`reels: []`), not an error.
+
+Notes:
+- The feed's `views` are null — use `min_likes` on the feed, `min_views` on
+  search/hashtag.
+- The home feed mixes fresh and evergreen reels, so a tight `posted_within_hours`
+  returns only the fresh minority (a longer `doomscroll` catches more).
+- `contains` is keyword matching, not topic understanding. For real topic
+  relevance use `search_reels` (Instagram's own ranking); semantic topic is the
+  agent's job, not the server's.
+
 Errors come back as structured dicts (`code`, `retry_after`, `requires_headful`,
 `suggested_tool`) so an agent can recover instead of stalling.
 
