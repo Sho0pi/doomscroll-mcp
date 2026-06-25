@@ -21,7 +21,6 @@ scroll_reels(limit=10)
       "caption": "🧠: oh ya let’s do this",
       "likes": 50,
       "comments": 6,
-      "shares": null,
       "date_posted": "1782362891",
       "audio": "Original audio",
       "_source": "network"
@@ -32,7 +31,6 @@ scroll_reels(limit=10)
       "caption": "A new album and font go really nice together 🩷 … Try it now in Stories.",
       "likes": 819876,
       "comments": 72765,
-      "shares": null,
       "date_posted": "1781294695",
       "audio": null,
       "_source": "network"
@@ -43,7 +41,6 @@ scroll_reels(limit=10)
       "caption": "Get a free personalized palm reading with ChatGPT …",
       "likes": 684,
       "comments": 20,
-      "shares": null,
       "date_posted": "1779154223",
       "audio": null,
       "_source": "network"
@@ -54,7 +51,6 @@ scroll_reels(limit=10)
       "caption": "Scroll ⬅️ to see more … #yoga",
       "likes": 436,
       "comments": 13,
-      "shares": null,
       "date_posted": "1780924627",
       "audio": null,
       "_source": "network"
@@ -65,7 +61,6 @@ scroll_reels(limit=10)
       "caption": "Sorry I am busy",
       "likes": 122,
       "comments": 15,
-      "shares": null,
       "date_posted": "1779592267",
       "audio": "Original audio",
       "_source": "network"
@@ -76,7 +71,6 @@ scroll_reels(limit=10)
       "caption": "🔥 @shakedancegroup_students",
       "likes": 787108,
       "comments": 845,
-      "shares": null,
       "date_posted": "1779714573",
       "audio": "Kavkaz — Starly",
       "_source": "network"
@@ -87,7 +81,6 @@ scroll_reels(limit=10)
       "caption": "I’m more scared of your spelling!!! #funny #fyp #grammar #foryourpage",
       "likes": 1015108,
       "comments": 3536,
-      "shares": null,
       "date_posted": "1780790055",
       "audio": "Original audio",
       "_source": "network"
@@ -98,7 +91,6 @@ scroll_reels(limit=10)
       "caption": "When life gives you fruit… not lemons 🍌🍓",
       "likes": 1800258,
       "comments": 5312,
-      "shares": null,
       "date_posted": "1774994125",
       "audio": "Made You Look — Meghan Trainor",
       "_source": "network"
@@ -109,7 +101,6 @@ scroll_reels(limit=10)
       "caption": "Gymnastics 🤸🏻 #fitnessgirl #gymnastics",
       "likes": 138991,
       "comments": 5836,
-      "shares": null,
       "date_posted": "1776525359",
       "audio": "Original audio",
       "_source": "network"
@@ -120,7 +111,6 @@ scroll_reels(limit=10)
       "caption": "Geldi sabah dozunuz ashaasdhaja😂 #cio0061",
       "likes": 4443908,
       "comments": 16723,
-      "shares": null,
       "date_posted": "1782111074",
       "audio": "Original audio",
       "_source": "network"
@@ -158,7 +148,9 @@ payloads:
 | rickylimon99 | 3,971,446 | 89,787 | null | 2026-05-10T00:59:09+00:00 |
 | dom.crocitto23 | 2,026,431 | 75,738 | null | 2026-05-23T18:00:59+00:00 |
 
-- **`reposts`** (alias `shares`) = Instagram's `media_repost_count` — real data.
+- **`reposts`** = Instagram's `media_repost_count` (reshares to feed) — real
+  data. This is the only share-type count in the JSON; there is no separate
+  DM-send/`shares` count (player-overlay DOM only), so the field was removed.
 - **`date_posted`** now ISO 8601 UTC; raw epoch kept as `date_posted_ts`.
 - **`views`** = `null`, always. Instagram does not expose reel view/play counts
   on the web — not in the feed, the reel page, or the media-info API. See
@@ -178,7 +170,6 @@ Every reel returned by `scroll_reels` has this shape. Example (creator `chatgpt`
   "likes": 684,
   "comments": 20,
   "views": null,
-  "shares": 0,
   "reposts": 0,
   "date_posted": "2026-05-19T01:30:23+00:00",
   "date_posted_ts": 1779154223,
@@ -194,7 +185,7 @@ Field reference:
 | `caption` / `description` | creator's post text (identical; two names) | ~always |
 | `visual_description` | IG auto-generated alt-text of the media | sparse (~1 in 6) |
 | `likes`, `comments` | engagement counts | ~always |
-| `shares` / `reposts` | IG `media_repost_count` (same metric, two names) | ~always |
+| `reposts` | IG `media_repost_count` (reshares to feed) | ~always |
 | `views` | play/view count | **always null** — IG hides web view counts ([why](views-investigation.md)) |
 | `date_posted` | upload time, ISO 8601 UTC | ~always |
 | `date_posted_ts` | upload time, unix epoch | ~always |
@@ -208,9 +199,9 @@ Field reference:
   junk shows up as a fill_rate drop, not a crash). This run: every reel has
   creator / caption / likes / comments / date_posted; audio on 7/10 (some reels
   carry no music node).
-- **`shares`** is `null` across the board — the default-feed endpoint payload
-  doesn't expose `reshare_count`. Best-effort by design: missing fields come back
-  null rather than failing the call.
+- **`reposts`** is `null` across this older feed sample — the default-feed
+  payload often omits the count. Best-effort by design: missing fields come back
+  null rather than failing the call. (Search results populate it reliably.)
 - **`date_posted`** is a raw Unix epoch string straight from Instagram.
 - **`timing`** lets the agent see humanization cost: 15 reels scrolled to collect
   10 unique, 7.6s of randomized wait, session cap not reached.

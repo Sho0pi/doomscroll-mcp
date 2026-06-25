@@ -141,7 +141,9 @@ def reel_from_node(node: dict[str, Any]) -> dict[str, Any] | None:
     # IG's auto-generated visual description of the media (alt text), when present.
     visual = _first(node, "accessibility_caption")
     ts = _first(node, "taken_at", "taken_at_timestamp", "device_timestamp")
-    # reposts/shares: IG exposes reshares as media_repost_count on the feed.
+    # reposts: IG exposes reshares-to-feed as media_repost_count. This is the
+    # ONLY share-type count in the JSON — the separate DM-send count is not in
+    # any payload (player-overlay DOM only), so there is no distinct `shares`.
     reposts = _to_int(
         _first(node, "media_repost_count", "reshare_count", "share_count")
     )
@@ -159,7 +161,6 @@ def reel_from_node(node: dict[str, Any]) -> dict[str, Any] | None:
         "likes": _to_int(_first(node, "like_count", "edge_liked_by")),
         "comments": _to_int(_first(node, "comment_count", "edge_media_to_comment")),
         "views": views,
-        "shares": reposts,
         "reposts": reposts,
         "date_posted": _iso(ts),
         "date_posted_ts": _to_int(ts),
@@ -332,7 +333,6 @@ def reels_from_dom_hrefs(hrefs: Iterable[str]) -> list[dict[str, Any]]:
                 "likes": None,
                 "comments": None,
                 "views": None,
-                "shares": None,
                 "reposts": None,
                 "date_posted": None,
                 "date_posted_ts": None,

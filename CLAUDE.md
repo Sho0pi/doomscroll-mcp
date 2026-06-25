@@ -59,7 +59,7 @@ Automating Instagram violates its Terms of Service and can get an account rate-l
 
 - **Session persistence is core**: Instagram login happens once. Persist the Playwright browser profile locally and reuse it between runs so `login_status()` returns logged-in without re-auth. Do not store credentials; rely on the persisted browser profile.
 - **No analysis in the server**: keep `scroll_reels` output as raw structured metadata. Trend detection, filtering, ranking, generation all live agent-side.
-- Engagement fields (shares especially) are best-effort — Instagram does not always expose them; return what is present rather than failing.
+- Engagement fields are best-effort — Instagram does not always expose them; return what is present rather than failing. Note: there is no distinct `shares`/DM-send count in the JSON; `reposts` (media_repost_count) is the only share-type metric.
 
 ## Layout
 
