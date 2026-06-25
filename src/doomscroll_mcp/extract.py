@@ -15,9 +15,10 @@ differently across feed / search / hashtag endpoints and across A/B buckets, so
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 # Substrings of IG response URLs that carry REELS payloads on the /reels/ page.
 # Scoped to reels-specific endpoints so home-feed payloads IG prefetches don't
@@ -126,7 +127,7 @@ def _iso(ts: Any) -> str | None:
     if n is None:
         return None
     try:
-        return datetime.fromtimestamp(n, tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(n, tz=UTC).isoformat()
     except (OverflowError, OSError, ValueError):
         return None
 

@@ -8,7 +8,6 @@ scraper returning plausible junk.
 
 from doomscroll_mcp import extract
 
-
 # Minimal node shaped like an IG api/v1 reel media item.
 API_V1_REEL = {
     "code": "Cabc123",

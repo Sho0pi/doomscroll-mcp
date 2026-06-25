@@ -1,6 +1,5 @@
 """Duration clamp + config behaviour for doomscroll()."""
 
-import os
 
 from doomscroll_mcp.config import Settings
 

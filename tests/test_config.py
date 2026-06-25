@@ -1,3 +1,5 @@
+import pytest
+
 from doomscroll_mcp.config import MODES, HumanizeConfig, Settings
 
 
@@ -23,8 +25,5 @@ def test_unknown_mode_falls_back_to_normal(tmp_path):
     s = Settings(profile_dir=tmp_path / "p", fixtures_dir=tmp_path / "f")
     for m in MODES:
         assert s.with_mode(m).mode == m
-    try:
+    with pytest.raises(ValueError):
         s.with_mode("nope")
-        assert False, "expected ValueError"
-    except ValueError:
-        pass

@@ -1,5 +1,10 @@
 # DoomScroll MCP
 
+[![CI](https://github.com/Sho0pi/doomscroll-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Sho0pi/doomscroll-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/doomscroll-mcp.svg)](https://pypi.org/project/doomscroll-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/doomscroll-mcp.svg)](https://pypi.org/project/doomscroll-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An MCP server that allows AI agents to browse Instagram Reels and perform
 content research.
 
@@ -172,18 +177,62 @@ Agent:
 → Returns top content ideas
 ```
 
-## Install & Run
+## Install
+
+Requires [`uv`](https://docs.astral.sh/uv/). Two one-time setup steps before any
+agent can use it:
 
 ```bash
-uv sync                              # install
-uv run playwright install chromium   # one-time browser
-uv run doomscroll-mcp                # start MCP server (stdio)
+# 1. Install the headless browser (shared cache, done once per machine)
+uvx --from doomscroll-mcp playwright install chromium
+
+# 2. Log in to Instagram by hand (opens a visible browser; no credentials stored)
+uvx --from doomscroll-mcp doomscroll-login
 ```
 
-First run: call `login()` — a visible browser opens, you sign in by hand (handles
-2FA / checkpoints), and the session is persisted. No credentials are stored.
+> From a git clone instead of PyPI, swap `uvx --from doomscroll-mcp` for
+> `uv run --directory /path/to/doomscroll-mcp`.
 
-### MCP client config
+Then add it to your agent. The server speaks MCP over stdio.
+
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) /
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "doomscroll": {
+      "command": "uvx",
+      "args": ["doomscroll-mcp"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add doomscroll -- uvx doomscroll-mcp
+```
+
+### Cursor
+
+`~/.cursor/mcp.json` (or any MCP client using the standard schema):
+
+```json
+{
+  "mcpServers": {
+    "doomscroll": {
+      "command": "uvx",
+      "args": ["doomscroll-mcp"]
+    }
+  }
+}
+```
+
+### From a local clone (no PyPI)
 
 ```json
 {
@@ -195,6 +244,10 @@ First run: call `login()` — a visible browser opens, you sign in by hand (hand
   }
 }
 ```
+
+After it's wired up, have the agent call `doctor()` to confirm it sees your
+logged-in profile. If `login_status()` ever reports logged out (expired session
+or a checkpoint), run `doomscroll-login` again.
 
 ### Tools
 
