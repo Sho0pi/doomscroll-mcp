@@ -1,0 +1,16 @@
+# gstack skills — local only, not shared
+.claude/skills/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Playwright profile + captured fixtures live under ~/.doomscroll-mcp by default;
+# ignore any that land in-repo (they carry a logged-in session's feed data).
+.doomscroll-mcp/
+fixtures/
