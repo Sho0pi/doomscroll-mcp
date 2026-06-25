@@ -29,6 +29,25 @@ def _session() -> BrowserSession:
     return BrowserSession(_settings)
 
 
+def _session_with_mode(mode: str | None):
+    """Fresh session, optionally with a per-call humanize mode override.
+
+    Returns (session, error_dict). error_dict is None on success, or a structured
+    BAD_MODE error if the mode is unknown.
+    """
+    s = _session()
+    if mode is not None:
+        try:
+            s.settings = _settings.with_mode(mode)
+        except ValueError:
+            return s, {
+                "error": True,
+                "code": "BAD_MODE",
+                "message": f"unknown mode {mode!r}; expected one of {MODES}",
+            }
+    return s, None
+
+
 async def _guard(coro) -> dict[str, Any]:
     try:
         return await coro
@@ -89,20 +108,44 @@ async def scroll_reels(limit: int = 50, mode: str | None = None) -> dict[str, An
     `mode` (optional): one of fast_test, normal_passive, conservative. Controls
     humanized delay/cap. Defaults to the server's configured mode.
 
-    Note: keyword/hashtag browsing are not in this tool yet; they will ship as
-    separate tools. This call drives the default feed only.
+    This call drives the default feed only. For a topic use `search_reels`;
+    for a tag use `hashtag_reels`.
     """
-    s = _session()
-    if mode is not None:
-        try:
-            s.settings = _settings.with_mode(mode)
-        except ValueError:
-            return {
-                "error": True,
-                "code": "BAD_MODE",
-                "message": f"unknown mode {mode!r}; expected one of {MODES}",
-            }
+    s, err = _session_with_mode(mode)
+    if err:
+        return err
     return await _guard(s.scroll_reels(limit=limit))
+
+
+@mcp.tool()
+async def search_reels(
+    query: str, limit: int = 50, mode: str | None = None
+) -> dict[str, Any]:
+    """Search Instagram by keyword and return matching reels.
+
+    Same reel shape and error handling as scroll_reels, sourced from the explore
+    search results for `query` (e.g. "beginner yoga"). Results are a mixed grid;
+    non-reel posts are filtered out, so fewer items load per scroll than the feed.
+    """
+    s, err = _session_with_mode(mode)
+    if err:
+        return err
+    return await _guard(s.search_reels(query=query, limit=limit))
+
+
+@mcp.tool()
+async def hashtag_reels(
+    tag: str, limit: int = 50, mode: str | None = None
+) -> dict[str, Any]:
+    """Browse a hashtag page and return its reels.
+
+    `tag` with or without a leading '#'. Same reel shape and errors as
+    scroll_reels, sourced from instagram.com/explore/tags/<tag>/.
+    """
+    s, err = _session_with_mode(mode)
+    if err:
+        return err
+    return await _guard(s.hashtag_reels(tag=tag, limit=limit))
 
 
 def main() -> None:

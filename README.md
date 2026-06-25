@@ -203,6 +203,11 @@ First run: call `login()` — a visible browser opens, you sign in by hand (hand
 - `logout()` — clear the profile
 - `doctor()` — browser/profile/auth diagnostics + next action
 - `scroll_reels(limit=50, mode=None)` — default feed → structured reel metadata
+- `search_reels(query, limit=50, mode=None)` — keyword search → matching reels
+- `hashtag_reels(tag, limit=50, mode=None)` — hashtag → matching reels
+
+`search_reels` / `hashtag_reels` hit Instagram's `top_serp` search API directly
+(relevance-filtered, paginated), not the explore UI.
 
 Errors come back as structured dicts (`code`, `retry_after`, `requires_headful`,
 `suggested_tool`) so an agent can recover instead of stalling.

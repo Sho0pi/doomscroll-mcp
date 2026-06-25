@@ -67,6 +67,25 @@ def test_walks_nested_graphql_and_skips_non_reels():
     assert reels[0]["url"].endswith("/reel/Cabc123/")
 
 
+def test_parses_top_serp_search_shape():
+    # Search results arrive nested under media_grid.sections[..].layout_content;
+    # the recursive walker must still find the reel.
+    serp = {
+        "media_grid": {
+            "sections": [
+                {"layout_content": {"medias": [{"media": API_V1_REEL}]}},
+                {"layout_content": {"medias": [{"media": {"code": "img", "pk": "2",
+                                                          "is_video": False}}]}},
+            ],
+            "has_more": True,
+            "next_max_id": "abc",
+        }
+    }
+    reels = extract.parse_response(serp)
+    assert len(reels) == 1
+    assert reels[0]["creator"] == "yogi.jane"
+
+
 def test_dedupes_within_payload():
     reels = extract.parse_response({"a": [API_V1_REEL], "b": [API_V1_REEL]})
     assert len(reels) == 1
