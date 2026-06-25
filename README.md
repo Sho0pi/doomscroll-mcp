@@ -33,9 +33,11 @@ For each reel, DoomScroll MCP attempts to collect:
 - Audio information
 - Likes
 - Comments
-- Shares (when available)
+- Shares / reposts (when available)
 - Date posted
-- Visible engagement metrics
+
+> Note: `views` is always null — Instagram does not expose reel view counts on
+> the web ([why](docs/views-investigation.md)).
 
 The MCP returns structured data so the AI agent can decide what is interesting
 and what should be ignored.

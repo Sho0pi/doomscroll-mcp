@@ -82,8 +82,8 @@ async def scroll_reels(limit: int = 50, mode: str | None = None) -> dict[str, An
     date_posted_ts (unix), audio, _source. Engagement fields are best-effort —
     missing ones come back null rather than failing.
 
-    Note on views: Instagram does NOT include view/play count in the home-feed
-    payload, so `views` is null here (it's only exposed on a reel's own page).
+    Note on views: Instagram does NOT expose reel view/play counts on the web at
+    all, so `views` is always null. See docs/views-investigation.md for why.
     `shares` and `reposts` are the same metric (IG's media_repost_count).
 
     `mode` (optional): one of fast_test, normal_passive, conservative. Controls

@@ -139,8 +139,9 @@ def reel_from_node(node: dict[str, Any]) -> dict[str, Any] | None:
     reposts = _to_int(
         _first(node, "media_repost_count", "reshare_count", "share_count")
     )
-    # views: IG omits play/view counts from the home-feed payload (view_count is
-    # null there; present only on the reel's own page). Surfaced honestly.
+    # views: Instagram does not expose reel view/play counts on the web — the
+    # feed sends view_count=null and ships no play_count. Always null in practice.
+    # Full investigation: docs/views-investigation.md
     views = _to_int(_first(node, "play_count", "ig_play_count", "view_count"))
     return {
         "url": _code_to_url(node),
