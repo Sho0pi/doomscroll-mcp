@@ -14,6 +14,8 @@ differently across feed / search / hashtag endpoints and across A/B buckets, so
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -221,6 +223,79 @@ def sort_reels(
     if top is not None and top >= 0:
         out = out[:top]
     return out
+
+
+# --- filtering ---------------------------------------------------------------
+# Mechanical post-collection filters (time / engagement floors / caption
+# keyword). NOT semantic topic understanding — that stays agent-side; for real
+# topic relevance use search_reels.
+@dataclass(frozen=True)
+class Filters:
+    posted_within_hours: int | None = None
+    min_views: int | None = None
+    min_likes: int | None = None
+    min_reposts: int | None = None
+    contains: str | None = None  # caption keyword, case-insensitive
+
+    @property
+    def is_empty(self) -> bool:
+        return all(
+            v in (None, "")
+            for v in (
+                self.posted_within_hours, self.min_views, self.min_likes,
+                self.min_reposts, self.contains,
+            )
+        )
+
+    def active(self) -> dict[str, Any]:
+        """Non-empty filters, for echoing back to the caller."""
+        out: dict[str, Any] = {}
+        for name in ("posted_within_hours", "min_views", "min_likes",
+                     "min_reposts", "contains"):
+            val = getattr(self, name)
+            if val not in (None, ""):
+                out[name] = val
+        return out
+
+    def apply(
+        self, reels: list[dict[str, Any]], now: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Keep reels passing every active predicate.
+
+        A reel missing the metric a floor targets is dropped (its value can't be
+        confirmed to pass). A reel with no date_posted_ts is dropped by a
+        recency filter for the same reason.
+        """
+        if self.is_empty:
+            return reels
+        cutoff = None
+        if self.posted_within_hours is not None:
+            cutoff = (now or time.time()) - self.posted_within_hours * 3600
+        needle = self.contains.lower() if self.contains else None
+        out: list[dict[str, Any]] = []
+        for r in reels:
+            if cutoff is not None:
+                ts = r.get("date_posted_ts")
+                if ts is None or ts < cutoff:
+                    continue
+            if not _passes_floor(r.get("views"), self.min_views):
+                continue
+            if not _passes_floor(r.get("likes"), self.min_likes):
+                continue
+            if not _passes_floor(r.get("reposts"), self.min_reposts):
+                continue
+            if needle is not None:
+                cap = r.get("caption")
+                if not cap or needle not in cap.lower():
+                    continue
+            out.append(r)
+        return out
+
+
+def _passes_floor(value: Any, floor: int | None) -> bool:
+    if floor is None:
+        return True
+    return isinstance(value, int) and value >= floor
 
 
 # --- DOM fallback ------------------------------------------------------------

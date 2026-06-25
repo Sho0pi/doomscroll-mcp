@@ -19,6 +19,7 @@ from mcp.server.fastmcp import FastMCP
 from .browser import BrowserSession
 from .config import MODES, Settings
 from .errors import DoomScrollError
+from .extract import Filters
 
 mcp = FastMCP("doomscroll-mcp")
 
@@ -27,6 +28,22 @@ _settings = Settings.from_env()
 
 def _session() -> BrowserSession:
     return BrowserSession(_settings)
+
+
+def _filters(
+    posted_within_hours: int | None,
+    min_views: int | None,
+    min_likes: int | None,
+    min_reposts: int | None,
+    contains: str | None,
+) -> Filters:
+    return Filters(
+        posted_within_hours=posted_within_hours,
+        min_views=min_views,
+        min_likes=min_likes,
+        min_reposts=min_reposts,
+        contains=contains,
+    )
 
 
 def _session_with_mode(mode: str | None):
@@ -96,30 +113,40 @@ async def scroll_reels(
     limit: int = 50,
     sort_by: str | None = None,
     top: int | None = None,
+    posted_within_hours: int | None = None,
+    min_views: int | None = None,
+    min_likes: int | None = None,
+    min_reposts: int | None = None,
+    contains: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Scroll the default Instagram Reels feed until `limit` reels are collected.
 
-    Returns {reels: [...], count, stopped_reason, duration_elapsed_s, timing,
-    fill_rate}. Each reel: url, creator, caption, description (= caption),
-    visual_description, likes, comments, views, shares, reposts, date_posted
-    (ISO 8601), date_posted_ts (unix), audio, _source. Engagement fields are
-    best-effort — missing ones come back null rather than failing.
+    Returns {reels: [...], count, filtered_out, stopped_reason,
+    duration_elapsed_s, timing, fill_rate}. Each reel: url, creator, caption,
+    description, visual_description, likes, comments, views, shares, reposts,
+    date_posted (ISO 8601), date_posted_ts (unix), audio, _source. Engagement
+    fields are best-effort — missing ones come back null.
 
     To scroll for a fixed TIME instead of a count, use `doomscroll`.
 
-    sort_by (optional): views | likes | reposts | recent — sort results
-    descending (None = discovery order). top (optional): keep only the top K.
+    sort_by: views | likes | reposts | recent (descending; None = discovery
+    order). top: keep only the top K after sorting.
 
-    Note on views: the home feed omits view/play counts, so `views` is null here.
-    Use search_reels/hashtag_reels for reels WITH view counts.
+    Filters (applied before sort): posted_within_hours (recency window),
+    min_views / min_likes / min_reposts (engagement floors), contains (caption
+    keyword, case-insensitive). A reel missing a filtered metric is dropped.
+    Note: feed `views` are null, so use min_likes on the feed, min_views on
+    search. `contains` is keyword matching, not topic understanding — for real
+    topic relevance use search_reels.
 
-    mode (optional): fast_test | normal_passive | conservative.
+    mode: fast_test | normal_passive | conservative.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.scroll_reels(limit=limit, sort_by=sort_by, top=top))
+    f = _filters(posted_within_hours, min_views, min_likes, min_reposts, contains)
+    return await _guard(s.scroll_reels(limit=limit, sort_by=sort_by, top=top, filters=f))
 
 
 @mcp.tool()
@@ -127,17 +154,27 @@ async def doomscroll(
     duration_seconds: int,
     sort_by: str | None = None,
     top: int | None = None,
+    posted_within_hours: int | None = None,
+    min_views: int | None = None,
+    min_likes: int | None = None,
+    min_reposts: int | None = None,
+    contains: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Doomscroll the default feed for a wall-clock duration, return what you saw.
 
     Like scroll_reels but the stop condition is TIME, not a reel count: scroll
     the feed for `duration_seconds` (clamped to the server's max, default 30 min)
-    and return every reel collected in that window. Stops early if Instagram's
-    per-session reel cap is hit (account safety) — see stopped_reason.
+    and return every reel collected. Stops early if Instagram's per-session reel
+    cap is hit (account safety) — see stopped_reason.
 
-    Pair with sort_by="views" + top=K to get "the best reels from N minutes of
-    scrolling". Same reel shape as scroll_reels (feed views are null).
+    Filters (posted_within_hours, min_views/likes/reposts, contains) apply to the
+    collected reels — e.g. doomscroll(600, posted_within_hours=24) returns only
+    reels posted in the last 24h from 10 minutes of scrolling. Pair with
+    sort_by="likes" + top=K for "the best fresh reels". Note: feed reels skew
+    evergreen, so a tight recency window may return few — for fresh-viral by
+    topic, search_reels(topic, posted_within_hours=24, sort_by="views") is
+    stronger. Feed `views` are null (use min_likes here).
     """
     if not isinstance(duration_seconds, int) or duration_seconds <= 0:
         return {
@@ -147,8 +184,11 @@ async def doomscroll(
     s, err = _session_with_mode(mode)
     if err:
         return err
+    f = _filters(posted_within_hours, min_views, min_likes, min_reposts, contains)
     return await _guard(
-        s.doomscroll(duration_seconds=duration_seconds, sort_by=sort_by, top=top)
+        s.doomscroll(
+            duration_seconds=duration_seconds, sort_by=sort_by, top=top, filters=f
+        )
     )
 
 
@@ -158,20 +198,31 @@ async def search_reels(
     limit: int = 50,
     sort_by: str | None = None,
     top: int | None = None,
+    posted_within_hours: int | None = None,
+    min_views: int | None = None,
+    min_likes: int | None = None,
+    min_reposts: int | None = None,
+    contains: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Search Instagram by keyword and return matching reels.
 
     Same reel shape/errors as scroll_reels, sourced from IG's search SERP for
     `query` (e.g. "beginner yoga"). Unlike the feed, search results DO include
-    `views` (play counts); `comments` is not in this payload (null).
+    `views`; `comments` is not in this payload (null).
 
-    sort_by (views|likes|reposts|recent) + top=K rank the results.
+    sort_by (views|likes|reposts|recent) + top=K rank the results. Filters
+    (posted_within_hours, min_views/likes/reposts, contains) narrow them — e.g.
+    search_reels("cooking", posted_within_hours=24, min_views=500000,
+    sort_by="views", top=10) = top viral cooking reels from the last 24h.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.search_reels(query=query, limit=limit, sort_by=sort_by, top=top))
+    f = _filters(posted_within_hours, min_views, min_likes, min_reposts, contains)
+    return await _guard(
+        s.search_reels(query=query, limit=limit, sort_by=sort_by, top=top, filters=f)
+    )
 
 
 @mcp.tool()
@@ -180,16 +231,24 @@ async def hashtag_reels(
     limit: int = 50,
     sort_by: str | None = None,
     top: int | None = None,
+    posted_within_hours: int | None = None,
+    min_views: int | None = None,
+    min_likes: int | None = None,
+    min_reposts: int | None = None,
+    contains: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Return reels for a hashtag (with or without a leading '#').
 
-    Same reel shape, views, and sort_by/top behaviour as search_reels.
+    Same reel shape, views, sort_by/top, and filters as search_reels.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.hashtag_reels(tag=tag, limit=limit, sort_by=sort_by, top=top))
+    f = _filters(posted_within_hours, min_views, min_likes, min_reposts, contains)
+    return await _guard(
+        s.hashtag_reels(tag=tag, limit=limit, sort_by=sort_by, top=top, filters=f)
+    )
 
 
 def main() -> None:
