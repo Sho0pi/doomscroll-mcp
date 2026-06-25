@@ -186,6 +186,43 @@ def parse_response(payload: Any) -> list[dict[str, Any]]:
     return out
 
 
+# --- sorting -----------------------------------------------------------------
+# A thin, explicit sort (not trend-detection or recommendation) the caller can
+# opt into. Maps a sort_by name to the reel dict field to order by, descending.
+SORT_KEYS: dict[str, str] = {
+    "views": "views",
+    "likes": "likes",
+    "reposts": "reposts",
+    "recent": "date_posted_ts",
+}
+
+
+def sort_reels(
+    reels: list[dict[str, Any]], sort_by: str | None, top: int | None = None
+) -> list[dict[str, Any]]:
+    """Return reels sorted by `sort_by` (descending), optionally truncated to top.
+
+    sort_by=None keeps discovery order. Reels missing the metric sort last.
+    Unknown sort_by raises ValueError (caller surfaces a structured error).
+    """
+    out = reels
+    if sort_by is not None:
+        if sort_by not in SORT_KEYS:
+            raise ValueError(
+                f"unknown sort_by {sort_by!r}; expected one of {tuple(SORT_KEYS)}"
+            )
+        field = SORT_KEYS[sort_by]
+        # (has_value, value) sorts None last under reverse=True.
+        out = sorted(
+            reels,
+            key=lambda r: (r.get(field) is not None, r.get(field) or 0),
+            reverse=True,
+        )
+    if top is not None and top >= 0:
+        out = out[:top]
+    return out
+
+
 # --- DOM fallback ------------------------------------------------------------
 # Only used when network capture yields nothing for a visible reel. Selectors
 # live HERE, in one place, so a break is a one-file fix (and a signal to widen

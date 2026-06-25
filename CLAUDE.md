@@ -70,7 +70,7 @@ src/doomscroll_mcp/
   extract.py    network-JSON parser (primary) + DOM fallback
   browser.py    BrowserSession: persistent context, profile lock, login state machine, scroll loop
   server.py     FastMCP tools: login, login_status, logout, doctor,
-                scroll_reels, search_reels, hashtag_reels
+                scroll_reels, doomscroll, search_reels, hashtag_reels
 tests/          parser fixture tests (the test signal without ground truth)
 ```
 
@@ -102,4 +102,6 @@ Env: `DOOMSCROLL_HOME` (profile+fixtures root, default `~/.doomscroll-mcp`),
 `DOOMSCROLL_MODE` (fast_test|normal_passive|conservative),
 `DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default),
 `DOOMSCROLL_IG_APP_ID` (override the public web app-id used for the search API,
-in case Instagram rotates it; default is the long-stable public value).
+in case Instagram rotates it; default is the long-stable public value),
+`DOOMSCROLL_MAX_DURATION_S` (hard ceiling on a single `doomscroll()` call,
+default 1800 = 30 min).

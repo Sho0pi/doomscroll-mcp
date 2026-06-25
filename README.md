@@ -202,12 +202,20 @@ First run: call `login()` — a visible browser opens, you sign in by hand (hand
 - `login_status()` — is the session logged in?
 - `logout()` — clear the profile
 - `doctor()` — browser/profile/auth diagnostics + next action
-- `scroll_reels(limit=50, mode=None)` — default feed → structured reel metadata
-- `search_reels(query, limit=50, mode=None)` — keyword search → matching reels
-- `hashtag_reels(tag, limit=50, mode=None)` — hashtag → matching reels
+- `scroll_reels(limit=50, sort_by=None, top=None, mode=None)` — feed, stop at a reel count
+- `doomscroll(duration_seconds, sort_by=None, top=None, mode=None)` — feed, stop after a wall-clock time
+- `search_reels(query, limit=50, sort_by=None, top=None, mode=None)` — keyword search → matching reels
+- `hashtag_reels(tag, limit=50, sort_by=None, top=None, mode=None)` — hashtag → matching reels
 
 `search_reels` / `hashtag_reels` hit Instagram's `top_serp` search API directly
 (relevance-filtered, paginated), not the explore UI.
+
+`doomscroll` scrolls for a fixed time instead of a fixed count — e.g.
+`doomscroll(600)` doomscrolls for 10 minutes. Add `sort_by="views"` + `top=10`
+to get "the best reels from N minutes of scrolling". Duration is clamped to
+`DOOMSCROLL_MAX_DURATION_S` (default 30 min). `sort_by` ∈
+`views | likes | reposts | recent` (descending; `None` = discovery order).
+Responses include `stopped_reason` (`limit | duration | dry | capped`).
 
 Errors come back as structured dicts (`code`, `retry_after`, `requires_headful`,
 `suggested_tool`) so an agent can recover instead of stalling.

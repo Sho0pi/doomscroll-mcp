@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     NO_REELS_FOUND = "NO_REELS_FOUND"            # empty feed / no results
     BROWSER_UNAVAILABLE = "BROWSER_UNAVAILABLE"  # Playwright/Chromium not installed
     PROFILE_LOCKED = "PROFILE_LOCKED"            # another session holds the profile lock
+    BAD_SORT = "BAD_SORT"                        # unknown sort_by value
 
 
 @dataclass
