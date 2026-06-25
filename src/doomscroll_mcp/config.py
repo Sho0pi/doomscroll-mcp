@@ -67,6 +67,9 @@ class Settings:
     # overridable via DOOMSCROLL_IG_APP_ID in case Instagram ever rotates it, so
     # a change needs no code edit.
     ig_app_id: str = "936619743392459"
+    # Hard ceiling on a single timed doomscroll() call, so an agent can't ask
+    # the browser to run for hours. Override with DOOMSCROLL_MAX_DURATION_S.
+    max_duration_s: int = 1800  # 30 minutes
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -81,6 +84,10 @@ class Settings:
             mode = "normal_passive"
         capture = os.environ.get("DOOMSCROLL_CAPTURE_FIXTURES", "") in ("1", "true", "yes")
         app_id = os.environ.get("DOOMSCROLL_IG_APP_ID") or cls.ig_app_id
+        try:
+            max_dur = int(os.environ.get("DOOMSCROLL_MAX_DURATION_S", "") or cls.max_duration_s)
+        except ValueError:
+            max_dur = cls.max_duration_s
         return cls(
             profile_dir=base / "profile",
             fixtures_dir=base / "fixtures",
@@ -88,6 +95,7 @@ class Settings:
             humanize=HumanizeConfig.for_mode(mode),
             capture_fixtures=capture,
             ig_app_id=app_id,
+            max_duration_s=max(1, max_dur),
         )
 
     def with_mode(self, mode: str) -> "Settings":

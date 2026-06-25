@@ -289,25 +289,97 @@ class BrowserSession:
             report["next_action"] = "resolve error above"
         return report
 
+    def _finalize(
+        self,
+        reels: dict[str, dict[str, Any]],
+        hz: Humanizer,
+        sort_by: str | None,
+        top: int | None,
+        stopped_reason: str,
+        suggested_tool: str,
+        elapsed_s: float,
+        degraded: bool = False,
+    ) -> dict[str, Any]:
+        """Shared payload builder: validate+apply sort/top, attach metadata.
+
+        Raises BAD_SORT for an unknown sort_by before any truncation.
+        """
+        if sort_by is not None and sort_by not in extract.SORT_KEYS:
+            raise DoomScrollError(
+                ErrorCode.BAD_SORT,
+                f"unknown sort_by {sort_by!r}; expected one of {tuple(extract.SORT_KEYS)}",
+                suggested_tool=suggested_tool,
+            )
+        result = extract.sort_reels(list(reels.values()), sort_by, top)
+        if not result:
+            raise DoomScrollError(
+                ErrorCode.NO_REELS_FOUND,
+                "No reels collected.",
+                retry_after=30.0,
+                suggested_tool=suggested_tool,
+            )
+        out: dict[str, Any] = {
+            "reels": result,
+            "count": len(result),
+            "stopped_reason": stopped_reason,
+            "duration_elapsed_s": round(elapsed_s, 1),
+            "timing": hz.timing_state(),
+            "fill_rate": _fill_rate(result),
+        }
+        if sort_by:
+            out["sorted_by"] = sort_by
+        if degraded:
+            out["warning"] = ErrorCode.EXTRACTION_DEGRADED.value
+        if hz.cap_reached:
+            out["warning"] = ErrorCode.COOLDOWN_ACTIVE.value
+            out["retry_after"] = hz.state.cooldown_remaining
+        return out
+
     # --- scrolling -----------------------------------------------------------
-    async def scroll_reels(self, limit: int = 50) -> dict[str, Any]:
-        """Drive the default Reels feed (full-screen player), return reel dicts."""
+    async def scroll_reels(
+        self, limit: int = 50, sort_by: str | None = None, top: int | None = None
+    ) -> dict[str, Any]:
+        """Drive the default Reels feed until `limit` reels are collected."""
         return await self._browse(
-            REELS_URL, surface="player", limit=limit, suggested_tool="scroll_reels"
+            REELS_URL, surface="player", limit=limit,
+            sort_by=sort_by, top=top, suggested_tool="scroll_reels",
         )
 
-    async def search_reels(self, query: str, limit: int = 50) -> dict[str, Any]:
-        """Search Instagram by keyword and return matching reels."""
-        return await self._search_api(query, limit=limit, suggested_tool="search_reels")
+    async def doomscroll(
+        self,
+        duration_seconds: int,
+        sort_by: str | None = None,
+        top: int | None = None,
+    ) -> dict[str, Any]:
+        """Doomscroll the default feed for a fixed wall-clock duration."""
+        return await self._browse(
+            REELS_URL, surface="player", limit=10_000,
+            duration_seconds=duration_seconds, sort_by=sort_by, top=top,
+            suggested_tool="doomscroll",
+        )
 
-    async def hashtag_reels(self, tag: str, limit: int = 50) -> dict[str, Any]:
+    async def search_reels(
+        self, query: str, limit: int = 50,
+        sort_by: str | None = None, top: int | None = None,
+    ) -> dict[str, Any]:
+        """Search Instagram by keyword and return matching reels."""
+        return await self._search_api(
+            query, limit=limit, sort_by=sort_by, top=top, suggested_tool="search_reels"
+        )
+
+    async def hashtag_reels(
+        self, tag: str, limit: int = 50,
+        sort_by: str | None = None, top: int | None = None,
+    ) -> dict[str, Any]:
         """Return reels for a hashtag (treated as a search term)."""
         return await self._search_api(
-            tag.lstrip("#"), limit=limit, suggested_tool="hashtag_reels"
+            tag.lstrip("#"), limit=limit, sort_by=sort_by, top=top,
+            suggested_tool="hashtag_reels",
         )
 
     async def _search_api(
-        self, query: str, limit: int, suggested_tool: str
+        self, query: str, limit: int, suggested_tool: str,
+        sort_by: str | None = None, top: int | None = None,
     ) -> dict[str, Any]:
         """Topic discovery via IG's top_serp search API.
 
@@ -321,6 +393,7 @@ class BrowserSession:
         hz = Humanizer(self.settings.humanize)
         reels: dict[str, dict[str, Any]] = {}
         headers = {"X-IG-App-ID": self.settings.ig_app_id, "Referer": INSTAGRAM_URL}
+        t0 = time.monotonic()
         try:
             pw, ctx = await self._launch(headless=True)
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
@@ -376,41 +449,47 @@ class BrowserSession:
                 seen_tokens.add(max_id)
                 await hz.scroll_pause()  # passive delay between pages
 
-            result = list(reels.values())[:limit]
-            if not result:
-                raise DoomScrollError(
-                    ErrorCode.NO_REELS_FOUND,
-                    f"No reels found for {param}={value!r}.",
-                    retry_after=30.0, suggested_tool=suggested_tool,
-                )
-            out: dict[str, Any] = {
-                "reels": result,
-                "count": len(result),
-                "timing": hz.timing_state(),
-                "fill_rate": _fill_rate(result),
-            }
-            if hz.cap_reached:
-                out["warning"] = ErrorCode.COOLDOWN_ACTIVE.value
-                out["retry_after"] = hz.state.cooldown_remaining
-            return out
+            # Trim to limit before finalize so sort/top operate on the kept set.
+            kept = dict(list(reels.items())[:limit])
+            reason = "capped" if hz.cap_reached else "limit" if len(reels) >= limit else "dry"
+            return self._finalize(
+                kept, hz, sort_by, top, stopped_reason=reason,
+                suggested_tool=suggested_tool, elapsed_s=time.monotonic() - t0,
+            )
         finally:
             await self._teardown(pw, ctx)
 
     async def _browse(
-        self, url: str, surface: str, limit: int, suggested_tool: str
+        self, url: str, surface: str, limit: int, suggested_tool: str,
+        duration_seconds: int | None = None,
+        sort_by: str | None = None, top: int | None = None,
     ) -> dict[str, Any]:
         """Shared engine: navigate, capture network JSON, scroll, return reels.
 
-        Network capture is primary; DOM hrefs are a fallback only for reels with
-        no JSON backing (flagged EXTRACTION_DEGRADED). `surface` picks the scroll
-        strategy: "player" advances the full-screen /reels/ viewer one reel at a
-        time; "grid" wheel-scrolls explore/hashtag result grids to lazy-load more.
+        Stops on the FIRST of: limit reached, duration elapsed, feed dry
+        (stagnant), or session reel-cap (account safety, wins even mid-window).
+        `duration_seconds` (clamped to settings.max_duration_s) drives the timed
+        doomscroll; None means count-based. Network capture is primary; DOM hrefs
+        are a fallback (flagged EXTRACTION_DEGRADED).
         """
+        # Validate sort early so a bad value fails before launching a browser.
+        if sort_by is not None and sort_by not in extract.SORT_KEYS:
+            raise DoomScrollError(
+                ErrorCode.BAD_SORT,
+                f"unknown sort_by {sort_by!r}; expected one of {tuple(extract.SORT_KEYS)}",
+                suggested_tool=suggested_tool,
+            )
+        deadline: float | None = None
+        if duration_seconds is not None:
+            secs = max(1, min(int(duration_seconds), self.settings.max_duration_s))
+            deadline = time.monotonic() + secs
+
         self.lock.acquire()
         pw = ctx = None
         hz = Humanizer(self.settings.humanize)
         reels: dict[str, dict[str, Any]] = {}
         degraded = False
+        t0 = time.monotonic()
         try:
             pw, ctx = await self._launch(headless=True)
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
@@ -474,7 +553,16 @@ class BrowserSession:
             # plain wheel/PageDown scroll. Pick the right gesture per surface.
             await page.bring_to_front()
             stagnant = 0
-            while len(reels) < limit and not hz.cap_reached and stagnant < 15:
+            # Time-based runs scroll until the deadline regardless of stagnation
+            # (the feed keeps serving fresh reels over minutes); count-based runs
+            # bail after 15 dry scrolls.
+            stagnant_limit = 10**9 if deadline is not None else 15
+            while (
+                len(reels) < limit
+                and not hz.cap_reached
+                and stagnant < stagnant_limit
+                and (deadline is None or time.monotonic() < deadline)
+            ):
                 before = len(reels)
                 try:
                     await page.keyboard.press(
@@ -514,36 +602,29 @@ class BrowserSession:
                     for r in fallback:
                         reels[r["url"]] = r
 
-            result = list(reels.values())[:limit]
-            if not result:
-                # Distinguish "parser broke on captured JSON" from "feed empty":
-                # the agent should retry an empty feed but escalate a parser break.
-                if parse_failures:
-                    raise DoomScrollError(
-                        ErrorCode.EXTRACTION_DEGRADED,
-                        "Captured network payloads but the parser extracted no reels.",
-                        suggested_tool="doctor",
-                        details={"parse_failures": parse_failures},
-                    )
+            if not reels and parse_failures:
+                # Parser broke on captured JSON — escalate (distinct from dry feed).
                 raise DoomScrollError(
-                    ErrorCode.NO_REELS_FOUND,
-                    "No reels extracted.",
-                    retry_after=30.0,
-                    suggested_tool=suggested_tool,
+                    ErrorCode.EXTRACTION_DEGRADED,
+                    "Captured network payloads but the parser extracted no reels.",
+                    suggested_tool="doctor",
+                    details={"parse_failures": parse_failures},
                 )
 
-            payload = {
-                "reels": result,
-                "count": len(result),
-                "timing": hz.timing_state(),
-                "fill_rate": _fill_rate(result),  # field-fill telemetry (AD4)
-            }
-            if degraded:
-                payload["warning"] = ErrorCode.EXTRACTION_DEGRADED.value
+            kept = dict(list(reels.items())[:limit])
             if hz.cap_reached:
-                payload["warning"] = ErrorCode.COOLDOWN_ACTIVE.value
-                payload["retry_after"] = hz.state.cooldown_remaining
-            return payload
+                reason = "capped"
+            elif deadline is not None and time.monotonic() >= deadline:
+                reason = "duration"
+            elif len(reels) >= limit:
+                reason = "limit"
+            else:
+                reason = "dry"
+            return self._finalize(
+                kept, hz, sort_by, top, stopped_reason=reason,
+                suggested_tool=suggested_tool, elapsed_s=time.monotonic() - t0,
+                degraded=degraded,
+            )
         finally:
             await self._teardown(pw, ctx)
 

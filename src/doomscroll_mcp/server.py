@@ -92,61 +92,104 @@ async def doctor() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def scroll_reels(limit: int = 50, mode: str | None = None) -> dict[str, Any]:
-    """Scroll the default Instagram Reels feed and return structured reel metadata.
+async def scroll_reels(
+    limit: int = 50,
+    sort_by: str | None = None,
+    top: int | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Scroll the default Instagram Reels feed until `limit` reels are collected.
 
-    Returns {reels: [...], count, timing, fill_rate}. Each reel: url, creator,
-    caption, description (= caption), visual_description (IG auto alt-text),
-    likes, comments, views, shares, reposts, date_posted (ISO 8601),
-    date_posted_ts (unix), audio, _source. Engagement fields are best-effort —
-    missing ones come back null rather than failing.
+    Returns {reels: [...], count, stopped_reason, duration_elapsed_s, timing,
+    fill_rate}. Each reel: url, creator, caption, description (= caption),
+    visual_description, likes, comments, views, shares, reposts, date_posted
+    (ISO 8601), date_posted_ts (unix), audio, _source. Engagement fields are
+    best-effort — missing ones come back null rather than failing.
+
+    To scroll for a fixed TIME instead of a count, use `doomscroll`.
+
+    sort_by (optional): views | likes | reposts | recent — sort results
+    descending (None = discovery order). top (optional): keep only the top K.
 
     Note on views: the home feed omits view/play counts, so `views` is null here.
-    Use search_reels/hashtag_reels for reels WITH view counts. See
-    docs/views-investigation.md. `shares` and `reposts` are the same metric.
+    Use search_reels/hashtag_reels for reels WITH view counts.
 
-    `mode` (optional): one of fast_test, normal_passive, conservative. Controls
-    humanized delay/cap. Defaults to the server's configured mode.
-
-    This call drives the default feed only. For a topic use `search_reels`;
-    for a tag use `hashtag_reels`.
+    mode (optional): fast_test | normal_passive | conservative.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.scroll_reels(limit=limit))
+    return await _guard(s.scroll_reels(limit=limit, sort_by=sort_by, top=top))
+
+
+@mcp.tool()
+async def doomscroll(
+    duration_seconds: int,
+    sort_by: str | None = None,
+    top: int | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Doomscroll the default feed for a wall-clock duration, return what you saw.
+
+    Like scroll_reels but the stop condition is TIME, not a reel count: scroll
+    the feed for `duration_seconds` (clamped to the server's max, default 30 min)
+    and return every reel collected in that window. Stops early if Instagram's
+    per-session reel cap is hit (account safety) — see stopped_reason.
+
+    Pair with sort_by="views" + top=K to get "the best reels from N minutes of
+    scrolling". Same reel shape as scroll_reels (feed views are null).
+    """
+    if not isinstance(duration_seconds, int) or duration_seconds <= 0:
+        return {
+            "error": True, "code": "BAD_DURATION",
+            "message": "duration_seconds must be a positive integer.",
+        }
+    s, err = _session_with_mode(mode)
+    if err:
+        return err
+    return await _guard(
+        s.doomscroll(duration_seconds=duration_seconds, sort_by=sort_by, top=top)
+    )
 
 
 @mcp.tool()
 async def search_reels(
-    query: str, limit: int = 50, mode: str | None = None
+    query: str,
+    limit: int = 50,
+    sort_by: str | None = None,
+    top: int | None = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Search Instagram by keyword and return matching reels.
 
-    Same reel shape and error handling as scroll_reels, sourced from the explore
-    search results for `query` (e.g. "beginner yoga"). Unlike the feed, search
-    results DO include `views` (play counts). `comments` is not in this payload
-    (comes back null).
+    Same reel shape/errors as scroll_reels, sourced from IG's search SERP for
+    `query` (e.g. "beginner yoga"). Unlike the feed, search results DO include
+    `views` (play counts); `comments` is not in this payload (null).
+
+    sort_by (views|likes|reposts|recent) + top=K rank the results.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.search_reels(query=query, limit=limit))
+    return await _guard(s.search_reels(query=query, limit=limit, sort_by=sort_by, top=top))
 
 
 @mcp.tool()
 async def hashtag_reels(
-    tag: str, limit: int = 50, mode: str | None = None
+    tag: str,
+    limit: int = 50,
+    sort_by: str | None = None,
+    top: int | None = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    """Browse a hashtag page and return its reels.
+    """Return reels for a hashtag (with or without a leading '#').
 
-    `tag` with or without a leading '#'. Same reel shape and errors as
-    scroll_reels, sourced from instagram.com/explore/tags/<tag>/.
+    Same reel shape, views, and sort_by/top behaviour as search_reels.
     """
     s, err = _session_with_mode(mode)
     if err:
         return err
-    return await _guard(s.hashtag_reels(tag=tag, limit=limit))
+    return await _guard(s.hashtag_reels(tag=tag, limit=limit, sort_by=sort_by, top=top))
 
 
 def main() -> None:

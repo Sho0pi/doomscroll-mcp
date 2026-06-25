@@ -120,6 +120,35 @@ def test_non_dict_music_info_does_not_crash():
     assert r["audio"] is None  # gracefully degraded, no crash
 
 
+def _reel(url, **kw):
+    base = dict(url=url, views=None, likes=None, reposts=None, date_posted_ts=None)
+    base.update(kw)
+    return base
+
+
+def test_sort_reels_by_views_desc_nulls_last():
+    reels = [_reel("a", views=10), _reel("b", views=None), _reel("c", views=99)]
+    out = extract.sort_reels(reels, "views")
+    assert [r["url"] for r in out] == ["c", "a", "b"]
+
+
+def test_sort_reels_recent_uses_timestamp():
+    reels = [_reel("a", date_posted_ts=100), _reel("b", date_posted_ts=300)]
+    assert [r["url"] for r in extract.sort_reels(reels, "recent")] == ["b", "a"]
+
+
+def test_sort_reels_none_keeps_order_and_top_truncates():
+    reels = [_reel("a", likes=1), _reel("b", likes=5), _reel("c", likes=3)]
+    assert [r["url"] for r in extract.sort_reels(reels, None)] == ["a", "b", "c"]
+    assert [r["url"] for r in extract.sort_reels(reels, "likes", top=2)] == ["b", "c"]
+
+
+def test_sort_reels_unknown_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        extract.sort_reels([], "trending")
+
+
 def test_should_capture_url_hints():
     assert extract.should_capture("https://www.instagram.com/api/v1/feed/reels/")
     assert extract.should_capture("https://www.instagram.com/api/v1/clips/home/")
