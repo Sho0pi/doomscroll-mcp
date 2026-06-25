@@ -17,16 +17,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-# Substrings of IG response URLs that carry reel/media payloads. Kept broad on
-# purpose — the walker filters to reel-shaped nodes regardless of endpoint.
+# Substrings of IG response URLs that carry REELS payloads on the /reels/ page.
+# Scoped to reels-specific endpoints so home-feed payloads IG prefetches don't
+# leak in. On /reels/, reels arrive via graphql/query; clips/feed-reels are the
+# api/v1 reels endpoints. The generic "/api/v1/" catch-all is deliberately NOT
+# here — it would pull the home timeline.
 CAPTURE_URL_HINTS = (
-    "/api/v1/",
     "/graphql",
     "/api/graphql",
+    "/api/v1/clips",
+    "/api/v1/feed/reels",
 )
-
-# Keys that, taken together, identify a media node as a reel.
-_VIDEO_KEYS = ("video_versions", "video_dash_manifest", "is_video", "video_url")
 
 
 def should_capture(url: str) -> bool:
@@ -38,7 +39,13 @@ def _looks_like_reel(node: dict[str, Any]) -> bool:
         return False
     if not (node.get("code") or node.get("pk") or node.get("id") or node.get("shortcode")):
         return False
-    if any(k in node for k in _VIDEO_KEYS):
+    # is_video must be truthy to count — a node with is_video=False is an image
+    # post and must NOT be mapped to a /reel/ url.
+    if node.get("is_video") is False:
+        return False
+    if node.get("video_versions") or node.get("video_dash_manifest") or node.get("video_url"):
+        return True
+    if node.get("is_video") is True:
         return True
     # GraphQL shape: __typename hints
     typename = node.get("__typename", "")
@@ -72,20 +79,21 @@ def _username(node: dict[str, Any]) -> str | None:
 
 
 def _audio(node: dict[str, Any]) -> str | None:
-    ci = node.get("clips_metadata") or {}
-    if isinstance(ci, dict):
-        music = ci.get("music_info") or {}
-        asset = (music or {}).get("music_asset_info") or {}
-        if isinstance(asset, dict):
-            title = _first(asset, "title")
-            artist = _first(asset, "display_artist")
-            if title and artist:
-                return f"{title} — {artist}"
-            if title:
-                return title
-        original = ci.get("original_sound_info") or {}
-        if isinstance(original, dict):
-            return _first(original, "original_audio_title")
+    ci = node.get("clips_metadata")
+    if not isinstance(ci, dict):
+        return None
+    music = ci.get("music_info")
+    asset = music.get("music_asset_info") if isinstance(music, dict) else None
+    if isinstance(asset, dict):
+        title = _first(asset, "title")
+        artist = _first(asset, "display_artist")
+        if title and artist:
+            return f"{title} — {artist}"
+        if title:
+            return title
+    original = ci.get("original_sound_info")
+    if isinstance(original, dict):
+        return _first(original, "original_audio_title")
     return None
 
 

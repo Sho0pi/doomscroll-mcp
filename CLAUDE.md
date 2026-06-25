@@ -77,8 +77,9 @@ tests/          parser fixture tests (the test signal without ground truth)
 
 - **Extraction is network-first** (UC1): intercept IG's internal JSON via
   `page.on("response")`, parse reel nodes with a recursive walker (survives shape
-  churn), DOM hrefs only as fallback. Raw responses dumped to `fixtures_dir` for
-  replay/debug.
+  churn), DOM hrefs only as fallback. Raw responses can be dumped to
+  `fixtures_dir` for replay/debug — opt-in via `DOOMSCROLL_CAPTURE_FIXTURES=1`
+  (off by default; payloads carry session data).
 - **Typed errors** (`AUTH_REQUIRED`, `CHECKPOINT_REQUIRED`, `COOLDOWN_ACTIVE`,
   `EXTRACTION_DEGRADED`, `SELECTOR_BROKEN`, `NO_REELS_FOUND`, …): tools return
   error dicts, never raw tracebacks, so the agent loop can branch.
@@ -96,4 +97,5 @@ uv run doomscroll-mcp                      # start the MCP server (stdio)
 ```
 
 Env: `DOOMSCROLL_HOME` (profile+fixtures root, default `~/.doomscroll-mcp`),
-`DOOMSCROLL_MODE` (fast_test|normal_passive|conservative).
+`DOOMSCROLL_MODE` (fast_test|normal_passive|conservative),
+`DOOMSCROLL_CAPTURE_FIXTURES` (1 to dump raw IG JSON for debug; off by default).

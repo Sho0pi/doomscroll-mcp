@@ -57,7 +57,10 @@ class Settings:
     fixtures_dir: Path
     mode: str = "normal_passive"
     humanize: HumanizeConfig = field(default_factory=HumanizeConfig)
-    capture_fixtures: bool = True   # dump raw IG network JSON for replay/debug (AD4)
+    # Dump raw IG network JSON for replay/debug (AD4). OFF by default: the
+    # payloads are unbounded and carry a logged-in session's feed data. Opt in
+    # with DOOMSCROLL_CAPTURE_FIXTURES=1.
+    capture_fixtures: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -70,11 +73,13 @@ class Settings:
         mode = os.environ.get("DOOMSCROLL_MODE", "normal_passive")
         if mode not in MODES:
             mode = "normal_passive"
+        capture = os.environ.get("DOOMSCROLL_CAPTURE_FIXTURES", "") in ("1", "true", "yes")
         return cls(
             profile_dir=base / "profile",
             fixtures_dir=base / "fixtures",
             mode=mode,
             humanize=HumanizeConfig.for_mode(mode),
+            capture_fixtures=capture,
         )
 
     def with_mode(self, mode: str) -> "Settings":

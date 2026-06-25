@@ -76,10 +76,26 @@ def test_non_reel_payload_returns_empty():
     assert extract.parse_response({"status": "ok", "data": {}}) == []
 
 
+def test_image_post_with_is_video_false_is_skipped():
+    # An image post carries a code/pk but is_video=False — must NOT become a reel.
+    image = {"code": "IMG123", "pk": "5", "is_video": False, "like_count": 9}
+    assert extract.parse_response({"items": [image]}) == []
+
+
+def test_non_dict_music_info_does_not_crash():
+    node = dict(API_V1_REEL, clips_metadata={"music_info": "unexpected_string"})
+    r = extract.reel_from_node(node)
+    assert r is not None
+    assert r["audio"] is None  # gracefully degraded, no crash
+
+
 def test_should_capture_url_hints():
     assert extract.should_capture("https://www.instagram.com/api/v1/feed/reels/")
-    assert extract.should_capture("https://www.instagram.com/api/graphql")
+    assert extract.should_capture("https://www.instagram.com/api/v1/clips/home/")
+    assert extract.should_capture("https://www.instagram.com/graphql/query")
     assert not extract.should_capture("https://www.instagram.com/static/bundle.js")
+    # home timeline must NOT be captured — reels browsing only
+    assert not extract.should_capture("https://www.instagram.com/api/v1/feed/timeline/")
 
 
 def test_dom_fallback_recovers_urls_only():

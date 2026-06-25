@@ -60,19 +60,29 @@ class LoginState(str, Enum):
 
 
 class ProfileLock:
-    """Cooperative cross-process lock on the profile dir (AD3)."""
+    """Cooperative cross-process lock on the profile dir (AD3).
+
+    The lock file lives BESIDE the profile dir, not inside it, so logout()
+    (which deletes the profile dir) can't blow away its own lock mid-operation.
+    release() only unlinks a lock this process owns, so stale-cleanup can't
+    delete a fresh owner's lock.
+    """
 
     def __init__(self, profile_dir: Path) -> None:
-        self.path = profile_dir / ".doomscroll.lock"
+        self.path = profile_dir.parent / (profile_dir.name + ".lock")
+        self._owned = False
 
     def acquire(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            stale = self._stale()
-            if stale:
-                self.release()
+            if self._stale():
+                # Steal only a confirmed-dead lock, then retry once.
+                try:
+                    self.path.unlink()
+                except FileNotFoundError:
+                    pass
                 return self.acquire()
             raise DoomScrollError(
                 ErrorCode.PROFILE_LOCKED,
@@ -82,6 +92,7 @@ class ProfileLock:
             )
         os.write(fd, str(os.getpid()).encode())
         os.close(fd)
+        self._owned = True
 
     def _stale(self) -> bool:
         try:
@@ -95,6 +106,9 @@ class ProfileLock:
             return True
 
     def release(self) -> None:
+        if not self._owned:
+            return  # never unlink a lock we didn't take
+        self._owned = False
         try:
             self.path.unlink()
         except FileNotFoundError:
@@ -132,6 +146,24 @@ class BrowserSession:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.lock = ProfileLock(settings.profile_dir)
+
+    async def _teardown(self, pw: Any, ctx: Any) -> None:
+        """Always release every resource, even if an earlier close raises.
+
+        ctx.close() failing must never skip pw.stop() or lock.release() — a
+        skipped release would wedge the profile lock for every future call.
+        """
+        if ctx is not None:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+        if pw is not None:
+            try:
+                await pw.stop()
+            except Exception:
+                pass
+        self.lock.release()
 
     # --- context lifecycle ---------------------------------------------------
     async def _launch(self, headless: bool):
@@ -199,11 +231,7 @@ class BrowserSession:
                 details={"last_state": state.value},
             )
         finally:
-            if ctx:
-                await ctx.close()
-            if pw:
-                await pw.stop()
-            self.lock.release()
+            await self._teardown(pw, ctx)
 
     async def login_status(self) -> dict[str, Any]:
         self.lock.acquire()
@@ -215,11 +243,7 @@ class BrowserSession:
             state = await _detect_state(page)
             return {"state": state.value, "logged_in": state == LoginState.LOGGED_IN}
         finally:
-            if ctx:
-                await ctx.close()
-            if pw:
-                await pw.stop()
-            self.lock.release()
+            await self._teardown(pw, ctx)
 
     async def logout(self) -> dict[str, Any]:
         """Clear the persisted profile (no IG-side logout needed)."""
@@ -276,9 +300,14 @@ class BrowserSession:
             pw, ctx = await self._launch(headless=True)
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
-            captured: list[Any] = []
+            # Track response handler tasks so they are not garbage-collected
+            # mid-flight, can be drained before we read results, and surface
+            # their exceptions instead of swallowing them silently.
+            pending: set[asyncio.Task] = set()
+            parse_failures = 0
 
             async def on_response(resp: Any) -> None:
+                nonlocal parse_failures
                 try:
                     if not extract.should_capture(resp.url):
                         return
@@ -287,16 +316,25 @@ class BrowserSession:
                         return
                     payload = await resp.json()
                 except Exception:
-                    return
-                captured.append(payload)
+                    return  # body unavailable/non-JSON — not an extraction failure
                 if self.settings.capture_fixtures:
                     self._dump_fixture(resp.url, payload)
-                for reel in extract.parse_response(payload):
+                try:
+                    parsed = extract.parse_response(payload)
+                except Exception:
+                    parse_failures += 1  # capture worked, parser broke — distinct signal
+                    return
+                for reel in parsed:
                     if reel["url"] and reel["url"] not in reels:
                         reels[reel["url"]] = reel
                         hz.note_reel()
 
-            page.on("response", lambda r: asyncio.create_task(on_response(r)))
+            def _spawn(resp: Any) -> None:
+                t = asyncio.create_task(on_response(resp))
+                pending.add(t)
+                t.add_done_callback(pending.discard)
+
+            page.on("response", _spawn)
 
             await page.goto(REELS_URL, wait_until="domcontentloaded")
             state = await _detect_state(page)
@@ -316,17 +354,34 @@ class BrowserSession:
                     details={"hint": "call login(force=True)"},
                 )
 
+            # The /reels/ page is a full-screen vertical player: advancing one
+            # reel at a time (ArrowDown, plus a wheel nudge as backup) is what
+            # makes IG prefetch the next graphql batch. A plain wheel scroll
+            # often doesn't move the player, so capture plateaus early.
+            await page.bring_to_front()
             stagnant = 0
-            while len(reels) < limit and not hz.cap_reached and stagnant < 5:
+            while len(reels) < limit and not hz.cap_reached and stagnant < 15:
                 before = len(reels)
+                try:
+                    await page.keyboard.press("ArrowDown")
+                except Exception:
+                    pass
                 await page.mouse.wheel(0, hz.scroll_delta())
                 await hz.scroll_pause()
                 await hz.watch()
-                await asyncio.sleep(0)  # let response handlers drain
+                # Drain the response handlers spawned during this scroll step so
+                # newly loaded reels are counted before we decide to stop.
+                if pending:
+                    await asyncio.wait(set(pending), timeout=5.0)
                 if len(reels) == before:
                     stagnant += 1
                 else:
                     stagnant = 0
+
+            # Stop listening and drain any stragglers before reading results.
+            page.remove_listener("response", _spawn)
+            if pending:
+                await asyncio.wait(set(pending), timeout=5.0)
 
             # DOM fallback if network capture produced nothing
             if not reels:
@@ -345,6 +400,15 @@ class BrowserSession:
 
             result = list(reels.values())[:limit]
             if not result:
+                # Distinguish "parser broke on captured JSON" from "feed empty":
+                # the agent should retry an empty feed but escalate a parser break.
+                if parse_failures:
+                    raise DoomScrollError(
+                        ErrorCode.EXTRACTION_DEGRADED,
+                        "Captured network payloads but the parser extracted no reels.",
+                        suggested_tool="doctor",
+                        details={"parse_failures": parse_failures},
+                    )
                 raise DoomScrollError(
                     ErrorCode.NO_REELS_FOUND,
                     "No reels extracted from the feed.",
@@ -365,19 +429,16 @@ class BrowserSession:
                 payload["retry_after"] = hz.state.cooldown_remaining
             return payload
         finally:
-            if ctx:
-                await ctx.close()
-            if pw:
-                await pw.stop()
-            self.lock.release()
+            await self._teardown(pw, ctx)
 
     def _dump_fixture(self, url: str, payload: Any) -> None:
         try:
+            blob = json.dumps(payload)
+            if len(blob) > 2_000_000:
+                return  # skip oversized — never write truncated/invalid JSON
             self.settings.fixtures_dir.mkdir(parents=True, exist_ok=True)
             name = f"{int(time.time()*1000)}-{abs(hash(url)) % 10**8}.json"
-            (self.settings.fixtures_dir / name).write_text(
-                json.dumps(payload)[:2_000_000]
-            )
+            (self.settings.fixtures_dir / name).write_text(blob)
         except Exception:
             pass  # fixtures are best-effort; never fail a scroll over them
 
