@@ -160,9 +160,9 @@ payloads:
 
 - **`reposts`** (alias `shares`) = Instagram's `media_repost_count` — real data.
 - **`date_posted`** now ISO 8601 UTC; raw epoch kept as `date_posted_ts`.
-- **`views`** = `null`. Instagram does not expose view/play count in the
-  home-feed JSON — that number only exists on a reel's own page. To get views,
-  a future tool would need to visit each `/reel/<code>/` URL directly.
+- **`views`** = `null`, always. Instagram does not expose reel view/play counts
+  on the web — not in the feed, the reel page, or the media-info API. See
+  [`views-investigation.md`](views-investigation.md) for the full probe log.
 
 ## Full reel shape (current)
 
@@ -195,7 +195,7 @@ Field reference:
 | `visual_description` | IG auto-generated alt-text of the media | sparse (~1 in 6) |
 | `likes`, `comments` | engagement counts | ~always |
 | `shares` / `reposts` | IG `media_repost_count` (same metric, two names) | ~always |
-| `views` | play/view count | **null** in feed — only on the reel's own page |
+| `views` | play/view count | **always null** — IG hides web view counts ([why](views-investigation.md)) |
 | `date_posted` | upload time, ISO 8601 UTC | ~always |
 | `date_posted_ts` | upload time, unix epoch | ~always |
 | `audio` | track title — artist, or "Original audio" | ~80% |
