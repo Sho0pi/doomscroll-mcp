@@ -124,7 +124,7 @@ async def scroll_reels(
 
     Returns {reels: [...], count, filtered_out, stopped_reason,
     duration_elapsed_s, timing, fill_rate}. Each reel: url, creator, caption,
-    description, visual_description, likes, comments, views, shares, reposts,
+    description, visual_description, likes, comments, views, reposts,
     date_posted (ISO 8601), date_posted_ts (unix), audio, _source. Engagement
     fields are best-effort — missing ones come back null.
 

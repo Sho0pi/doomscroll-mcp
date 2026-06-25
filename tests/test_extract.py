@@ -52,8 +52,8 @@ def test_parses_api_v1_reel_fields():
     assert r["visual_description"] == "Photo of a person on a yoga mat."
     assert r["likes"] == 12345
     assert r["comments"] == 123
-    assert r["shares"] == 33666          # from media_repost_count
-    assert r["reposts"] == 33666
+    assert r["reposts"] == 33666         # media_repost_count (only share-type count)
+    assert "shares" not in r             # no distinct share count in the JSON
     assert r["views"] is None            # not in feed payload
     assert r["date_posted"] == "2023-11-14T22:13:20+00:00"  # epoch -> ISO
     assert r["date_posted_ts"] == 1700000000
