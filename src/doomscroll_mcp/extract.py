@@ -79,7 +79,11 @@ def _username(node: dict[str, Any]) -> str | None:
 
 
 def _audio(node: dict[str, Any]) -> str | None:
+    # Feed uses clips_metadata; search (top_serp) uses music_metadata. Same
+    # nested shape (music_info / original_sound_info) inside either container.
     ci = node.get("clips_metadata")
+    if not isinstance(ci, dict):
+        ci = node.get("music_metadata")
     if not isinstance(ci, dict):
         return None
     music = ci.get("music_info")
@@ -139,8 +143,9 @@ def reel_from_node(node: dict[str, Any]) -> dict[str, Any] | None:
     reposts = _to_int(
         _first(node, "media_repost_count", "reshare_count", "share_count")
     )
-    # views: Instagram does not expose reel view/play counts on the web — the
-    # feed sends view_count=null and ships no play_count. Always null in practice.
+    # views: the home feed omits play/view counts (null there), but the search
+    # SERP (top_serp) DOES include play_count/ig_play_count. So views populate
+    # for search_reels/hashtag_reels and stay null for scroll_reels.
     # Full investigation: docs/views-investigation.md
     views = _to_int(_first(node, "play_count", "ig_play_count", "view_count"))
     return {

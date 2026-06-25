@@ -101,9 +101,9 @@ async def scroll_reels(limit: int = 50, mode: str | None = None) -> dict[str, An
     date_posted_ts (unix), audio, _source. Engagement fields are best-effort —
     missing ones come back null rather than failing.
 
-    Note on views: Instagram does NOT expose reel view/play counts on the web at
-    all, so `views` is always null. See docs/views-investigation.md for why.
-    `shares` and `reposts` are the same metric (IG's media_repost_count).
+    Note on views: the home feed omits view/play counts, so `views` is null here.
+    Use search_reels/hashtag_reels for reels WITH view counts. See
+    docs/views-investigation.md. `shares` and `reposts` are the same metric.
 
     `mode` (optional): one of fast_test, normal_passive, conservative. Controls
     humanized delay/cap. Defaults to the server's configured mode.
@@ -124,8 +124,9 @@ async def search_reels(
     """Search Instagram by keyword and return matching reels.
 
     Same reel shape and error handling as scroll_reels, sourced from the explore
-    search results for `query` (e.g. "beginner yoga"). Results are a mixed grid;
-    non-reel posts are filtered out, so fewer items load per scroll than the feed.
+    search results for `query` (e.g. "beginner yoga"). Unlike the feed, search
+    results DO include `views` (play counts). `comments` is not in this payload
+    (comes back null).
     """
     s, err = _session_with_mode(mode)
     if err:

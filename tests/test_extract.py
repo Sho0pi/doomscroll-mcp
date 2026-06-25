@@ -101,6 +101,18 @@ def test_image_post_with_is_video_false_is_skipped():
     assert extract.parse_response({"items": [image]}) == []
 
 
+def test_audio_from_music_metadata_search_shape():
+    # Search (top_serp) nests audio under music_metadata, not clips_metadata.
+    node = {k: v for k, v in API_V1_REEL.items() if k != "clips_metadata"}
+    node["music_metadata"] = {
+        "music_info": {"music_asset_info": {"title": "Calm", "display_artist": "X"}}
+    }
+    node["play_count"] = 944436
+    r = extract.reel_from_node(node)
+    assert r["audio"] == "Calm — X"
+    assert r["views"] == 944436  # views available in search
+
+
 def test_non_dict_music_info_does_not_crash():
     node = dict(API_V1_REEL, clips_metadata={"music_info": "unexpected_string"})
     r = extract.reel_from_node(node)
